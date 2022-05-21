@@ -5,6 +5,7 @@ import argparse
 from functools import partial
 import torch
 import numpy
+from pathlib import Path
 
 from hgraph import MolGraph, common_atom_vocab, PairVocab
 import rdkit
@@ -16,7 +17,12 @@ def to_numpy(tensors):
     return a, b, c
 
 def tensorize(mol_batch, vocab):
-    x = MolGraph.tensorize(mol_batch, vocab, common_atom_vocab)
+    # Hacky solution... Set batch size to 1 and throw them out if they are none
+    # See line 120 (ish) for how we handle them 
+    try: 
+        x = MolGraph.tensorize(mol_batch, vocab, common_atom_vocab)
+    except KeyError: 
+        return None
     return to_numpy(x)
 
 def tensorize_pair(mol_batch, vocab):
@@ -43,7 +49,10 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--mode', type=str, default='pair')
     parser.add_argument('--ncpu', type=int, default=8)
+    parser.add_argument('--out_dir', type=Path, default=Path("."))
     args = parser.parse_args()
+
+    args.out_dir.mkdir(exist_ok=True)
 
     with open(args.vocab) as f:
         vocab = [x.strip("\r\n ").split() for x in f]
@@ -70,7 +79,7 @@ if __name__ == "__main__":
             st = split_id * le
             sub_data = all_data[st : st + le]
 
-            with open('tensors-%d.pkl' % split_id, 'wb') as f:
+            with open(args.out_dir / ('tensors-%d.pkl' % split_id), 'wb') as f:
                 pickle.dump(sub_data, f, pickle.HIGHEST_PROTOCOL)
 
     elif args.mode == 'cond_pair':
@@ -91,7 +100,7 @@ if __name__ == "__main__":
             st = split_id * le
             sub_data = all_data[st : st + le]
 
-            with open('tensors-%d.pkl' % split_id, 'wb') as f:
+            with open(args.out_dir / ('tensors-%d.pkl' % split_id), 'wb') as f:
                 pickle.dump(sub_data, f, pickle.HIGHEST_PROTOCOL)
 
     elif args.mode == 'single':
@@ -103,15 +112,26 @@ if __name__ == "__main__":
 
         batches = [data[i : i + args.batch_size] for i in range(0, len(data), args.batch_size)]
         func = partial(tensorize, vocab = args.vocab)
-        all_data = pool.map(func, batches)
-        num_splits = len(all_data) // 1000
+        # all_data = pool.map(func, batches) original function 
+        raw_data = pool.map(func, batches)
+        all_data = [] 
+        bad_count = 0 
+        #handling if the graphs for some smiles don't get created correctly. 
+        for elem in raw_data: 
+            if elem is not None: 
+                all_data.append(elem)
+            else: 
+                bad_count += 1 
+        
+        print(f"Bad smiles strings: {bad_count}")
 
+        num_splits = len(all_data) // 1000
         le = (len(all_data) + num_splits - 1) // num_splits
 
         for split_id in range(num_splits):
             st = split_id * le
             sub_data = all_data[st : st + le]
 
-            with open('tensors-%d.pkl' % split_id, 'wb') as f:
+            with open(args.out_dir / ('tensors-%d.pkl' % split_id), 'wb') as f:
                 pickle.dump(sub_data, f, pickle.HIGHEST_PROTOCOL)
 

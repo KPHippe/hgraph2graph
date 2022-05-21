@@ -11,7 +11,13 @@ import argparse
 import os
 from tqdm.auto import tqdm
 
+import wandb
+
 from hgraph import *
+
+#keep threads from running over itself
+torch.set_num_threads(8)
+
 
 lg = rdkit.RDLogger.logger() 
 lg.setLevel(rdkit.RDLogger.CRITICAL)
@@ -25,9 +31,9 @@ parser.add_argument('--load_model', default=None)
 parser.add_argument('--seed', type=int, default=7)
 
 parser.add_argument('--rnn_type', type=str, default='LSTM')
-parser.add_argument('--hidden_size', type=int, default=250)
-parser.add_argument('--embed_size', type=int, default=250)
-parser.add_argument('--batch_size', type=int, default=50)
+parser.add_argument('--hidden_size', type=int, default=256)
+parser.add_argument('--embed_size', type=int, default=256)
+parser.add_argument('--batch_size', type=int, default=64)  #screw non bases of 2 
 parser.add_argument('--latent_size', type=int, default=32)
 parser.add_argument('--depthT', type=int, default=15)
 parser.add_argument('--depthG', type=int, default=15)
@@ -49,7 +55,11 @@ parser.add_argument('--print_iter', type=int, default=50)
 parser.add_argument('--save_iter', type=int, default=5000)
 
 args = parser.parse_args()
-print(args)
+print(vars(args))
+
+wandb.init(project="hgraph-classdata", entity="drug_design_autolabs_2022", config=vars(args))
+
+
 
 torch.manual_seed(args.seed)
 random.seed(args.seed)
@@ -59,6 +69,9 @@ args.vocab = PairVocab(vocab)
 
 model = HierVAE(args).cuda()
 print("Model #Params: %dK" % (sum([x.nelement() for x in model.parameters()]) / 1000,))
+
+#Watch the model on WandB
+wandb.watch(model)
 
 for param in model.parameters():
     if param.dim() == 1:
@@ -88,6 +101,7 @@ for epoch in range(args.epoch):
         total_step += 1
         model.zero_grad()
         loss, kl_div, wacc, iacc, tacc, sacc = model(*batch, beta=beta)
+        
 
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), args.clip_norm)
@@ -97,8 +111,23 @@ for epoch in range(args.epoch):
 
         if total_step % args.print_iter == 0:
             meters /= args.print_iter
-            print("[%d] Beta: %.3f, KL: %.2f, loss: %.3f, Word: %.2f, %.2f, Topo: %.2f, Assm: %.2f, PNorm: %.2f, GNorm: %.2f" % (total_step, beta, meters[0], meters[1], meters[2], meters[3], meters[4], meters[5], param_norm(model), grad_norm(model)))
+            p_norm = param_norm(model)
+            g_norm = grad_norm(model)
+            print("[%d] Beta: %.3f, KL: %.2f, loss: %.3f, Word: %.2f, %.2f, Topo: %.2f, Assm: %.2f, PNorm: %.2f, GNorm: %.2f" % (total_step, beta, meters[0], meters[1], meters[2], meters[3], meters[4], meters[5], p_norm, g_norm))
             sys.stdout.flush()
+
+            wandb.log({
+                'beta': beta,
+                'kl_div':  meters[0],
+                'loss': meters[1],
+                'word1': meters[2],
+                'word2': meters[3],
+                'topo': meters[4],
+                'assm': meters[5], 
+                'param_norm': p_norm,
+                'grad_norm': g_norm, 
+                'lr': scheduler.get_lr()[0],
+            })
             meters *= 0
         
         if total_step % args.save_iter == 0:

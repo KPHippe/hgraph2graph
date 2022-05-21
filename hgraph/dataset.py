@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from rdkit import Chem
 import os, random, gc
 import pickle
+from pathlib import Path 
 
 from hgraph.chemutils import get_leaves
 from hgraph.mol_graph import MolGraph
@@ -91,19 +92,47 @@ class DataFolder(object):
         self.batch_size = batch_size
         self.shuffle = shuffle
 
-    def __len__(self):
-        return len(self.data_files) * 1000
-
-    def __iter__(self):
+        self.list_of_batches = [] 
         for fn in self.data_files:
             fn = os.path.join(self.data_folder, fn)
             with open(fn, 'rb') as f:
                 batches = pickle.load(f)
+            self.list_of_batches.extend(batches)
 
-            if self.shuffle: random.shuffle(batches) #shuffle data before batch
-            for batch in batches:
-                yield batch
+    def __len__(self):
+        return len(self.list_of_batches)
 
-            del batches
-            gc.collect()
+    def __iter__(self):
+        # for fn in self.data_files:
+        #     fn = os.path.join(self.data_folder, fn)
+        #     with open(fn, 'rb') as f:
+        #         batches = pickle.load(f)
+        for elem in self.list_of_batches: 
+            # if self.shuffle: random.shuffle(batches) #shuffle data before batch
+            # for batch in batches:
+            yield elem
 
+def make_cuda(tensors):
+    tree_tensors, graph_tensors = tensors
+    make_tensor = lambda x: x if type(x) is torch.Tensor else torch.tensor(x)
+    tree_tensors = [make_tensor(x).cuda().long() for x in tree_tensors[:-1]] + [tree_tensors[-1]]
+    graph_tensors = [make_tensor(x).cuda().long() for x in graph_tensors[:-1]] + [graph_tensors[-1]]
+    return tree_tensors, graph_tensors
+
+class SMILESDataset(Dataset): 
+    """Another failed attempt at making their code better...."""
+    def __init__(self, data_folder): 
+        self.data = []
+        for data_file in Path(data_folder).glob("*.pkl"): 
+            with open(data_file, 'rb') as f: 
+                self.data.extend(pickle.load(f)) 
+
+        print(self.data[0])
+
+    def __len__(self): 
+        return len(self.data)
+
+    def __getitem__(self, idx): 
+        graphs, tensors, orders = self.data[idx]
+        # tree_tensors, graph_tensors = torch.Tensor.from 
+        return self.data[idx]
