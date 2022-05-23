@@ -7,3 +7,5 @@ model.*
 splits/
 *.pkl
 ckpt/
+wandb/
+*.egg-info/

@@ -1,11 +1,12 @@
-from multiprocessing import Pool
-import math, random, sys
-import pickle
-import argparse
-from functools import partial
+import json
 import torch
 import numpy
+import pickle
+import argparse
 from pathlib import Path
+import math, random, sys
+from functools import partial
+from multiprocessing import Pool
 
 from hgraph import MolGraph, common_atom_vocab, PairVocab
 import rdkit
@@ -23,6 +24,11 @@ def tensorize(mol_batch, vocab):
         x = MolGraph.tensorize(mol_batch, vocab, common_atom_vocab)
     except KeyError: 
         return None
+    except AssertionError as e: 
+        return None 
+    except RecursionError as r:
+        return None
+
     return to_numpy(x)
 
 def tensorize_pair(mol_batch, vocab):
@@ -46,10 +52,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', required=True)
     parser.add_argument('--vocab', required=True)
-    parser.add_argument('--batch_size', type=int, default=32)
-    parser.add_argument('--mode', type=str, default='pair')
+    parser.add_argument('--batch_size', type=int, default=1)
+    parser.add_argument('--tensors_per_file', type=int, default=1000)
+    parser.add_argument('--mode', type=str, default='single')
     parser.add_argument('--ncpu', type=int, default=8)
     parser.add_argument('--out_dir', type=Path, default=Path("."))
+    parser.add_argument('--save_association', action='store_true', default=False)
     args = parser.parse_args()
 
     args.out_dir.mkdir(exist_ok=True)
@@ -106,32 +114,42 @@ if __name__ == "__main__":
     elif args.mode == 'single':
         #dataset contains single molecules
         with open(args.train) as f:
-            data = [line.strip("\r\n ").split()[0] for line in f]
+            smiles_data = [line.strip("\r\n ").split()[0] for line in f]
 
-        random.shuffle(data)
 
-        batches = [data[i : i + args.batch_size] for i in range(0, len(data), args.batch_size)]
+        batches = [smiles_data[i : i + args.batch_size] for i in range(0, len(smiles_data), args.batch_size)]
         func = partial(tensorize, vocab = args.vocab)
         # all_data = pool.map(func, batches) original function 
-        raw_data = pool.map(func, batches)
-        all_data = [] 
+        raw_tensor_data = pool.map(func, batches)
+        tensor_data = [] 
         bad_count = 0 
-        #handling if the graphs for some smiles don't get created correctly. 
-        for elem in raw_data: 
+        #handling if the graphs for some smiles don't get created correctly.
+        data_association = {}  
+        counter = 0 
+        for smile, elem in zip(smiles_data, raw_tensor_data): 
             if elem is not None: 
-                all_data.append(elem)
+                tensor_data.append(elem)
+                data_association[smile] = counter
+                counter += 1  
             else: 
                 bad_count += 1 
+            
         
+
         print(f"Bad smiles strings: {bad_count}")
 
-        num_splits = len(all_data) // 1000
-        le = (len(all_data) + num_splits - 1) // num_splits
+        num_splits = len(tensor_data) // args.tensors_per_file
+        le = (len(tensor_data) + num_splits - 1) // num_splits
 
         for split_id in range(num_splits):
             st = split_id * le
-            sub_data = all_data[st : st + le]
+            sub_data = tensor_data[st : st + le]
 
             with open(args.out_dir / ('tensors-%d.pkl' % split_id), 'wb') as f:
                 pickle.dump(sub_data, f, pickle.HIGHEST_PROTOCOL)
+
+        if args.save_association: 
+            data_association['metadata'] = {'num_splits': num_splits, 'le': le, 'tensors_per_file': args.tensors_per_file}
+            json.dump(data_association, open(args.out_dir / 'tensor_association.json', 'w'))  
+            
 

@@ -8,7 +8,15 @@ def process(data):
     vocab = set()
     for line in data:
         s = line.strip("\r\n ")
-        hmol = MolGraph(s)
+        
+        try: 
+            hmol = MolGraph(s)
+        except AssertionError as e: 
+            continue 
+        except RecursionError as r:
+            continue
+        except KeyError as k:
+            continue
         for node,attr in hmol.mol_tree.nodes(data=True):
             smiles = attr['smiles']
             vocab.add( attr['label'] )

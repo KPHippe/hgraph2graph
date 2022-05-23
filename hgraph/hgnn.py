@@ -59,6 +59,13 @@ class HierVAE(nn.Module):
         loss, wacc, iacc, tacc, sacc = self.decoder((root_vecs, root_vecs, root_vecs), graphs, tensors, orders)
         return loss + beta * kl_div, kl_div.item(), wacc, iacc, tacc, sacc
 
+    def generate_embeddings(self, graphs, tensors, orders, beta, perturb_z=False):
+        tree_tensors, graph_tensors = tensors = make_cuda(tensors)
+
+        root_vecs, tree_vecs, _, graph_vecs = self.encoder(tree_tensors, graph_tensors)
+        root_vecs, root_kl = self.rsample(root_vecs, self.R_mean, self.R_var, perturb_z)
+
+        return root_vecs #root_vecs are the embeddings
 
 class HierVGNN(nn.Module):
 

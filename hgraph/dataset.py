@@ -92,24 +92,28 @@ class DataFolder(object):
         self.batch_size = batch_size
         self.shuffle = shuffle
 
-        self.list_of_batches = [] 
+        self.data = [] 
         for fn in self.data_files:
+            if 'association' in fn or 'json' in fn:
+                continue 
             fn = os.path.join(self.data_folder, fn)
             with open(fn, 'rb') as f:
                 batches = pickle.load(f)
-            self.list_of_batches.extend(batches)
+            self.data.extend(batches)
+
+        if self.shuffle: 
+            ramdon.shuffle(self.data)
 
     def __len__(self):
-        return len(self.list_of_batches)
+        return len(self.data)
 
     def __iter__(self):
+        # This was originally here, but led to data being reloaded every epoch
         # for fn in self.data_files:
         #     fn = os.path.join(self.data_folder, fn)
         #     with open(fn, 'rb') as f:
         #         batches = pickle.load(f)
-        for elem in self.list_of_batches: 
-            # if self.shuffle: random.shuffle(batches) #shuffle data before batch
-            # for batch in batches:
+        for elem in self.data: 
             yield elem
 
 def make_cuda(tensors):
@@ -133,6 +137,7 @@ class SMILESDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx): 
+        #cannot put nx.DiGraph into a tensor, this is why it fails
         graphs, tensors, orders = self.data[idx]
         # tree_tensors, graph_tensors = torch.Tensor.from 
         return self.data[idx]
