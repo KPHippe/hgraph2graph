@@ -1,0 +1,12 @@
+name: hgraph
+channels:
+  - defaults
+  - rdkit
+  - pytorch
+dependencies:
+  - python=3.6
+  - tqdm
+  - networkx=1.10.2
+  - rdkik=2020.09.1.0
+  - pytorch=1.10.2
+  - cudatoolkit=10.2

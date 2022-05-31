@@ -4,6 +4,8 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
 
+import os 
+import subprocess 
 import math, random, sys
 import numpy as np
 import argparse
@@ -20,8 +22,8 @@ parser.add_argument('--vocab', required=True)
 parser.add_argument('--atom_vocab', default=common_atom_vocab)
 parser.add_argument('--model', required=True)
 parser.add_argument('--data_folder', type=str, required=True)
-parser.add_argument('--association', type=str, help='Whether or not to store indexes of smile strings in tensor files')
 parser.add_argument('--out_file', type=str, required=True)
+parser.add_argument('--smi_file', type=str, help='If you want to provide raw smiles, perform preprocessing script')
 
 parser.add_argument('--seed', type=int, default=7)
 parser.add_argument('--nsample', type=int, default=10000)
@@ -39,6 +41,22 @@ parser.add_argument('--dropout', type=float, default=0.0)
 
 args = parser.parse_args()
 
+if os.path.isdir(args.data_folder) and os.listdir(args.data_folder):
+    dataset = DataFolder(args.data_folder, args.batch_size, shuffle=False)
+
+else: 
+    print("Preprocessing data")
+    #run preprocessing 
+    if not os.path.isdir(args.data_folder): 
+        os.mkdir(args.data_folder)
+    file_dir = os.path.dirname(os.path.realpath(__file__)) 
+    preproces_location = os.path.join(file_dir, 'preprocess.py')
+    command = f"python {preproces_location} --train {args.smi_file} --vocab {args.vocab} --out_dir {args.data_folder} --ncpu 16 --mode single"
+
+    subprocess.run(command.split(' '))
+
+    dataset = DataFolder(args.data_folder, args.batch_size, shuffle=False)
+
 vocab = [x.strip("\r\n ").split() for x in open(args.vocab)] 
 args.vocab = PairVocab(vocab)
 
@@ -52,12 +70,13 @@ model.eval()
 torch.manual_seed(args.seed)
 random.seed(args.seed)
 
-dataset = DataFolder(args.data_folder, args.batch_size, shuffle=False)
+
+
 print(f'Data length {len(dataset)}')
 embeddings = [] 
 with torch.no_grad(): 
 
-    for i, batch in tqdm(enumerate(dataset)):
+    for i, batch in tqdm(enumerate(dataset), total=len(dataset)):
         try: 
             root_vecs = model.generate_embeddings(*batch, beta=beta)
             embeddings.append(root_vecs.detach().cpu().numpy())
@@ -67,7 +86,7 @@ with torch.no_grad():
         
 
 embeddings = np.concatenate(embeddings)
-print(embeddings.shape)
+print("Embeddings shape: ", embeddings.shape, " saved to: ", args.out_file)
 
 np.save(args.out_file, embeddings)
 
